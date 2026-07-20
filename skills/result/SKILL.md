@@ -1,10 +1,10 @@
 ---
 name: patchbay:result
-description: Load a completed job's candidate summary, diff metadata, and verification result. Planned for Milestone 1.
+description: Load a completed job's verification result, patch hash, and artifact references.
 ---
 
 # $patchbay:result <job-id>
 
-**Status: not yet implemented (Milestone 1).** Backing MCP tool: `patchbay_result`.
+Backing MCP tool: `patchbay_result`.
 
-When implemented, returns the candidate summary, changed files, patch metadata, policy result, verification result, review result, and artifact references. Large raw patches are fetched by bounded artifact access, not dumped into context.
+Returns the job state, task hash, patch hash, base commit, and the on-disk artifact set (`contract.json`, `candidate.patch`, `policy.json`, `verification.json`, `receipt.json`) stored under the plugin data directory. Every artifact is content-hashed.

@@ -1,10 +1,10 @@
 ---
 name: patchbay:cancel
-description: Cancel an owned active job, terminating its exact process tree and preserving partial artifacts. Planned for Milestone 1.
+description: Cancel a non-terminal job.
 ---
 
 # $patchbay:cancel <job-id>
 
-**Status: not yet implemented (Milestone 1).** Backing MCP tool: `patchbay_cancel`.
+Backing MCP tool: `patchbay_cancel`. Transitions a non-terminal job to `CANCELLED`.
 
-When implemented, verifies job ownership, transitions the job atomically, terminates the exact process tree by process identity (not PID alone), preserves partial artifacts, and cleans or quarantines the worktree. Cross-session cancellation requires explicit confirmation.
+**Milestone 1 limitation:** jobs run synchronously through the fake worker, so there is no live process to terminate here. Cooperative process-tree termination of a running worker (grace period → force kill, by process identity not PID) lands with the async OpenCode adapter (PRD 10.5, 31.3).

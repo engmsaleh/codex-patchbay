@@ -14,16 +14,30 @@ See [`docs/prd.md`](./docs/prd.md) for the full product spec.
 
 ## Status
 
-**Milestone 0 — plugin shell.** Implemented:
+**Milestone 1 — verified delegation core (fake worker).** Implemented:
 
-- Codex plugin manifest (`.codex-plugin/plugin.json`) and MCP config (`.mcp.json`).
-- Namespaced skills (`$patchbay:doctor`, `$patchbay:setup`, and intent stubs for the rest).
-- A bundled STDIO MCP server exposing the read-only `patchbay_doctor` tool.
-- A prebuilt runtime (`dist/mcp-server.mjs`) with **no install/lifecycle scripts**.
+- Codex plugin manifest (`.codex-plugin/plugin.json`), MCP config, and namespaced skills.
+- Bundled STDIO MCP server with 8 `patchbay_` tools: `doctor`, `estimate`, `delegate`,
+  `status`, `result`, `prepare_apply`, `apply`, `cancel`.
+- Typed task contract (zod) with canonicalization + SHA-256 task hashing.
+- Detached-worktree isolation at an exact base commit; full change inventory (incl. untracked).
+- Patch policy gate: scope/protected-path enforcement, file-count/diff-size limits,
+  binary/symlink/lockfile checks, private-key scan.
+- Clean verifier: applies the candidate to a **fresh** worktree, confirms the applied hash,
+  runs acceptance commands (argv only) with timeouts. A worker's own test claim is never trusted.
+- Durable job store + compare-and-set state machine (survives restart); per-job receipts.
+- Hash-gated apply guard: prepare token + task/patch/base/HEAD/clean checks before applying
+  to the working tree. Never commits, pushes, merges, or stages.
+- A `fake` worker runtime (testkit) so the full pipeline runs in CI with no provider credentials.
 
-Not yet built (Milestone 1+): contract validator, job state machine, worktree
-isolation, worker delegation via OpenCode, clean verifier, Claude review, and the
-safe apply guard.
+Not yet built: the OpenCode DeepSeek/GLM adapter (Milestone 1 finish), Claude review + one
+repair round (Milestone 2), and container secure mode + crash recovery (Milestone 3).
+
+### Try it
+
+```sh
+bun test          # 15 tests: doctor, policy, and full-pipeline scenarios
+```
 
 ## Requirements
 

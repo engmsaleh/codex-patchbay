@@ -1,10 +1,13 @@
 ---
 name: patchbay:status
-description: Show Patchbay jobs owned by the current session (and optionally all repo jobs). Planned for Milestone 1.
+description: Show a Patchbay job's state, or list recent jobs.
 ---
 
-# $patchbay:status
+# $patchbay:status [job-id]
 
-**Status: not yet implemented (Milestone 1).** Backing MCP tool: `patchbay_status`.
+Backing MCP tool: `patchbay_status`.
 
-When implemented, shows each job's state, phase, progress, timestamps, worker, budget consumed, and next action.
+- With a `jobId`: shows that job's state, phase, worker, and base commit.
+- Without one: lists recent jobs (newest first).
+
+Job state is persisted, so it survives a control-plane restart.
