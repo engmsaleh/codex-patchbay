@@ -1,0 +1,29 @@
+# Recommended alias; override with PATCHBAY_GLM_FAST_MODEL (PRD P-08).
+# Mirrors src/profiles.ts (the runtime source of truth).
+id = "glm-fast"
+runtime = "opencode"
+model_env = "PATCHBAY_GLM_FAST_MODEL"
+default_model = "opencode-go/glm-5.1"
+mode = "write"
+
+[limits]
+max_steps = 12
+max_wall_seconds = 1200
+max_output_bytes = 1048576
+max_changed_files = 8
+max_diff_lines = 400
+max_repair_rounds = 1
+
+[permissions]
+network = false
+recursive_delegation = false
+git_commit = false
+git_push = false
+external_directories = false
+
+[auth]
+mode = "opencode_subscription"
+provider = "opencode-go"
+
+[cost]
+mode = "provider_reported"

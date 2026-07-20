@@ -3,6 +3,8 @@
 import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import type { Contract } from "./contract.ts";
+import { getProfile } from "./profiles.ts";
+import { openCodeRuntime } from "./runtime-opencode.ts";
 
 export interface RunInput {
   worktreeDir: string;
@@ -51,12 +53,9 @@ export const fakeRuntime: WorkerRuntime = {
   },
 };
 
-const RUNTIMES: Record<string, WorkerRuntime> = { fake: fakeRuntime };
-
-/** Resolve a runtime by worker profile. M1 ships only the fake runtime. */
+/** Resolve a runtime by worker profile: `fake*` → fake; OpenCode profiles → OpenCode adapter. */
 export function getRuntime(profile: string): WorkerRuntime {
   if (profile.startsWith("fake")) return fakeRuntime;
-  const r = RUNTIMES[profile];
-  if (r) return r;
-  throw new Error(`worker runtime for profile "${profile}" is not implemented yet (only "fake" in Milestone 1)`);
+  if (getProfile(profile)?.runtime === "opencode") return openCodeRuntime;
+  throw new Error(`no worker runtime for profile "${profile}"`);
 }

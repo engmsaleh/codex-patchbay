@@ -18,4 +18,4 @@ Delegate one bounded implementation task and return a verified candidate. Backin
 
 State `READY_TO_APPLY` means nothing was applied. To apply, get user approval, then call `patchbay_prepare_apply` and `patchbay_apply` (see `$patchbay:orchestrate`).
 
-Milestone 1 ships the `fake` worker profile for testing. DeepSeek/GLM via OpenCode land next.
+Worker profiles: `deepseek-fast`, `deepseek-capable`, `glm-fast`, `glm-capable` (DeepSeek/GLM via OpenCode Go), plus `fake` for testing. Auth uses your OpenCode Go subscription — run `opencode auth login` if `$patchbay:doctor` shows them degraded.

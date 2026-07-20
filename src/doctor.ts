@@ -3,6 +3,7 @@
 // report the env-var NAME and a present/absent boolean.
 import { spawnSync } from "node:child_process";
 import { PATCHBAY_VERSION } from "./version.ts";
+import { getProfile, authAvailable } from "./profiles.ts";
 
 export type Health = "ready" | "degraded" | "blocked" | "unknown";
 
@@ -21,11 +22,11 @@ export interface DoctorReport {
   unavailable: string[];
 }
 
-// Worker/reviewer profiles. Model IDs and prices are NOT hard-coded here (PRD P-08);
-// only the runtime binary + credential env-var name needed to report readiness.
-const WORKERS = [
-  { label: "DeepSeek profile", runtime: "opencode", cred: "DEEPSEEK_API_KEY", workflow: "DeepSeek implementation" },
-  { label: "GLM Coding Plan profile", runtime: "opencode", cred: "ZAI_API_KEY", workflow: "GLM implementation" },
+// Worker families → a representative profile whose auth we probe. Auth is the OpenCode Go
+// subscription (credential in OpenCode's store), so readiness = OpenCode present + authed.
+const WORKER_FAMILIES = [
+  { label: "DeepSeek profile", profile: "deepseek-fast", workflow: "DeepSeek implementation" },
+  { label: "GLM Coding Plan profile", profile: "glm-fast", workflow: "GLM implementation" },
 ] as const;
 
 const REVIEWER = { label: "Claude Code reviewer", bin: "claude", workflow: "Claude review" } as const;
@@ -43,12 +44,6 @@ function tryCmd(argv: string[], timeoutMs = 4000): { ok: boolean; out: string } 
 
 function firstLine(s: string): string {
   return s.split("\n")[0]?.trim() ?? "";
-}
-
-/** True only that the env var is set to a non-empty string. The value never leaves this function. */
-function credPresent(name: string): boolean {
-  const v = process.env[name];
-  return typeof v === "string" && v.length > 0;
 }
 
 export interface DoctorOptions {
@@ -94,23 +89,23 @@ export function runDoctor(opts: DoctorOptions = {}): DoctorReport {
     detail: docker.ok ? firstLine(docker.out) : "no Docker-compatible engine (standard isolation only)",
   });
 
-  // Worker profiles: ready iff runtime present AND credential present.
+  // Worker families: ready iff OpenCode present AND the subscription is authenticated.
   let anyCred = false;
-  for (const w of WORKERS) {
-    const runtimeOk = w.runtime === "opencode" ? opencode.ok : false;
-    const hasCred = credPresent(w.cred);
+  for (const w of WORKER_FAMILIES) {
+    const profile = getProfile(w.profile)!;
+    const hasCred = authAvailable(profile);
     anyCred ||= hasCred;
     let status: Health;
     let detail: string;
-    if (!runtimeOk) {
+    if (!opencode.ok) {
       status = "blocked";
-      detail = `runtime ${w.runtime} unavailable`;
+      detail = "runtime opencode unavailable";
     } else if (!hasCred) {
       status = "degraded";
-      detail = `authentication missing (${w.cred} not set)`;
+      detail = "OpenCode Go subscription not authenticated (run: opencode auth login)";
     } else {
       status = "ready";
-      detail = `credential ${w.cred} present`;
+      detail = "OpenCode Go subscription authenticated";
     }
     components.push({ name: w.label, status, detail });
     (status === "ready" ? available : unavailable).push(w.workflow);

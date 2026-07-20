@@ -119,7 +119,11 @@ export async function runJob(vc: ValidatedContract, ownerSession: string): Promi
     // Worker.
     transition(jobId, "WORKTREE_READY", "RUNNING_WORKER", "running_worker");
     const runtime = getRuntime(contract.worker.profile);
-    const worker = await runtime.run({ worktreeDir, contract });
+    const worker = await runtime.run({ worktreeDir, contract }).catch((e) => ({
+      ok: false as const,
+      summary: e instanceof Error ? e.message : String(e),
+      log: e instanceof Error ? (e.stack ?? e.message) : String(e),
+    }));
     artifacts["worker-log.txt"] = writeArtifact(jobId, "worker-log.txt", worker.log);
     if (!worker.ok) {
       terminate(jobId, "RUNNING_WORKER", "FAILED_WORKER", worker.summary, "worker_failed");
