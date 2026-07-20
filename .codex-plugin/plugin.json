@@ -1,0 +1,35 @@
+{
+  "name": "patchbay",
+  "version": "0.1.0",
+  "description": "Codex-led, evidence-gated delegation to lower-cost coding workers and independent reviewers.",
+  "author": {
+    "name": "Patchbay Contributors"
+  },
+  "homepage": "https://github.com/engmsaleh/codex-patchbay",
+  "repository": "https://github.com/engmsaleh/codex-patchbay",
+  "license": "Apache-2.0",
+  "keywords": [
+    "codex",
+    "orchestration",
+    "deepseek",
+    "glm",
+    "claude-code",
+    "code-review",
+    "task-delegation",
+    "verification"
+  ],
+  "skills": "./skills/",
+  "mcpConfig": "./.mcp.json",
+  "interface": {
+    "displayName": "Patchbay",
+    "shortDescription": "Verified multi-model delegation for Codex",
+    "longDescription": "Keep Codex as orchestrator and final AI judge while DeepSeek or GLM implements bounded tasks, deterministic tools verify results, and Claude Code optionally reviews them.",
+    "category": "Coding",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Use $patchbay:doctor to check worker and sandbox readiness",
+      "Use $patchbay:orchestrate to delegate this bounded implementation task",
+      "Use $patchbay:review to request an independent review"
+    ]
+  }
+}

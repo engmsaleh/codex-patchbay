@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "patchbay": {
+      "command": "node",
+      "args": ["${CODEX_PLUGIN_ROOT}/dist/mcp-server.mjs", "--stdio"]
+    }
+  }
+}
