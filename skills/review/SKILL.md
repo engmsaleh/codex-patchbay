@@ -1,10 +1,12 @@
 ---
 name: patchbay:review
-description: Independently review a candidate, branch, commit range, or working-tree diff with Claude Code (read-only, structured findings). Planned for Milestone 2.
+description: Review a verified candidate with Claude Code (read-only) and produce structured findings.
 ---
 
 # $patchbay:review
 
-**Status: not yet implemented (Milestone 2).** Backing MCP tool: `patchbay_review`.
+**Status: implemented.** Backing MCP tools: `patchbay_review`, `patchbay_submit_finding_dispositions`, and `patchbay_repair`.
 
-When implemented, Claude reviews a read-only candidate in one of four modes — `standard`, `adversarial`, `security`, `design` — and returns schema-constrained findings. Claude reviews; Codex validates each finding before it becomes a repair requirement. A parse failure is never treated as "no findings".
+Claude reviews verified candidates in one of four modes (`standard`, `adversarial`, `security`, `design`) and returns
+schema-constrained findings. Dispositions are recorded with `patchbay_submit_finding_dispositions`; confirmed findings can
+drive bounded repair jobs via `patchbay_repair`.

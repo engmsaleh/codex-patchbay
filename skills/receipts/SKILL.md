@@ -1,10 +1,10 @@
 ---
 name: patchbay:receipts
-description: Show recent jobs with worker, cost/quota, duration, pass/fail, findings, and disposition. Planned for Milestone 1.
+description: Show recent jobs, findings, and dispositions from the Patchbay job log.
 ---
 
 # $patchbay:receipts
 
-**Status: not yet implemented (Milestone 1).** Backing MCP tool: `patchbay_receipts`.
+**Status: implemented.** Backing MCP tool: `patchbay_receipts`.
 
-When implemented, lists recent terminal jobs and aggregate verified-cost metrics. Every load-bearing artifact (contract, patch, checks, findings, disposition) is content-hashed and auditable.
+When implemented, lists recent jobs with state, patch metadata, policy and verification signals, plus review/disposition summaries when present.

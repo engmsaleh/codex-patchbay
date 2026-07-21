@@ -9,6 +9,8 @@ import { openCodeRuntime } from "./runtime-opencode.ts";
 export interface RunInput {
   worktreeDir: string;
   contract: Contract;
+  /** Aborted when the job is cancelled — the runtime must stop and kill its worker. */
+  signal?: AbortSignal;
 }
 
 export interface RawWorkerResult {
@@ -29,15 +31,26 @@ export interface WorkerRuntime {
  */
 export const fakeRuntime: WorkerRuntime = {
   id: "fake",
-  async run({ worktreeDir }: RunInput): Promise<RawWorkerResult> {
+  async run({ worktreeDir, signal }: RunInput): Promise<RawWorkerResult> {
     const raw = process.env.PATCHBAY_FAKE_SCRIPT;
     const script = raw ? (JSON.parse(raw) as {
       writes?: { path: string; content: string }[];
       deletes?: string[];
       summary?: string;
       fail?: boolean;
+      delayMs?: number;
     }) : {};
 
+    if (script.delayMs) {
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, script.delayMs);
+        signal?.addEventListener("abort", () => {
+          clearTimeout(t);
+          resolve();
+        });
+      });
+    }
+    if (signal?.aborted) return { ok: false, summary: "cancelled", log: "fake worker: aborted" };
     if (script.fail) return { ok: false, summary: script.summary ?? "worker failed", log: "fake worker: forced failure" };
 
     for (const w of script.writes ?? []) {

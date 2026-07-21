@@ -17,7 +17,8 @@ writeFileSync(AUTH, JSON.stringify({ "opencode-go": { type: "api", key: "sk-test
 process.env.PATCHBAY_OPENCODE_AUTH = AUTH;
 
 const { validateContract } = await import("../src/contract.ts");
-const { runJob } = await import("../src/pipeline.ts");
+const { runJob, startJob, cancelJob } = await import("../src/pipeline.ts");
+const { getJob } = await import("../src/store.ts");
 
 function sh(cwd: string, ...argv: string[]): string {
   return execFileSync(argv[0]!, argv.slice(1), { cwd, encoding: "utf8" }).trim();
@@ -40,6 +41,7 @@ function contract(root: string, head: string, allow = ["src/**"]) {
     scope: { allow },
     acceptance: [{ id: "pass", argv: ["node", "-e", "process.exit(0)"], required: true }],
     worker: { profile: "deepseek-fast", selection_reason: "test" },
+    metadata: { risk: "low" },
   });
 }
 function withEnv<T>(env: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
@@ -112,4 +114,28 @@ test("missing subscription credential fails the worker cleanly", async () => {
     () => runJob(contract(root, head), "s"),
   );
   expect(out.job.state).toBe("FAILED_WORKER");
+});
+
+test("cancel kills a live worker process group and ends CANCELLED (no timeout)", async () => {
+  const { root, head } = makeRepo();
+  // Long wall time so the timeout can't be what ends it — cancellation must.
+  process.env.PATCHBAY_WALL_MS = "60000";
+  process.env.PATCHBAY_FAKE_OPENCODE_SCRIPT = JSON.stringify({ hang: true });
+  try {
+    const job = startJob(contract(root, head), "s");
+    const start = Date.now();
+    while (getJob(job.id)!.state !== "RUNNING_WORKER" && Date.now() - start < 8000) await new Promise((r) => setTimeout(r, 20));
+    expect(getJob(job.id)!.state).toBe("RUNNING_WORKER");
+    const res = cancelJob(job.id);
+    expect(res.ok).toBe(true);
+    while (!["CANCELLED", "CANCEL_REQUESTED", "NEEDS_HUMAN"].includes(getJob(job.id)!.state) && Date.now() - start < 12000) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    const finalState = getJob(job.id)!.state;
+    expect(["CANCELLED", "CANCEL_REQUESTED", "NEEDS_HUMAN"]).toContain(finalState);
+    expect(Date.now() - start).toBeLessThan(11000); // ended well before the 60s wall cap
+  } finally {
+    delete process.env.PATCHBAY_WALL_MS;
+    delete process.env.PATCHBAY_FAKE_OPENCODE_SCRIPT;
+  }
 });

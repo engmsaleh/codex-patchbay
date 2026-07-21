@@ -17,8 +17,9 @@ See [`docs/prd.md`](./docs/prd.md) for the full product spec.
 **Milestone 1 — verified delegation core (fake worker).** Implemented:
 
 - Codex plugin manifest (`.codex-plugin/plugin.json`), MCP config, and namespaced skills.
-- Bundled STDIO MCP server with 8 `patchbay_` tools: `doctor`, `estimate`, `delegate`,
-  `status`, `result`, `prepare_apply`, `apply`, `cancel`.
+- Bundled STDIO MCP server with review and repair tools: `doctor`, `estimate`, `delegate`,
+  `status`, `result`, `prepare_apply`, `apply`, `verify`, `logs`, `cancel`, `review`,
+  `submit_finding_dispositions`, `repair`, and `receipts`.
 - Typed task contract (zod) with canonicalization + SHA-256 task hashing.
 - Detached-worktree isolation at an exact base commit; full change inventory (incl. untracked).
 - Patch policy gate: scope/protected-path enforcement, file-count/diff-size limits,
@@ -33,9 +34,17 @@ See [`docs/prd.md`](./docs/prd.md) for the full product spec.
   (`opencode auth login`) — no per-provider API keys. The worker runs with a deny-first
   OpenCode config, a stripped environment, and only the selected provider's credential copied
   into an isolated temp home. Model IDs are configurable aliases, not source constants.
+- **Claude review + dispositions + repair round**: `patchbay_review` invokes an external reviewer
+  against verified candidates, findings can be confirmed/rejected via `patchbay_submit_finding_dispositions`,
+  and confirmed findings can start bounded repair work via `patchbay_repair`. `patchbay_receipts`
+  aggregates recent jobs, findings, and dispositions for review.
 
-Not yet built: Claude review + one repair round (Milestone 2), an async background job runner
-with live-process cancellation, and container secure mode + crash recovery (Milestone 3).
+**Async job runner**: `patchbay_delegate` returns a `job_id` immediately and runs the worker
+in the background; poll `patchbay_status`/`patchbay_result` until `READY_TO_APPLY` or a terminal
+failure. If a job becomes `STALE` due HEAD movement, `patchbay_prepare_apply` re-integrates and
+re-verifies before issuing a fresh apply plan.
+
+Not yet built: container secure mode + multi-process/multi-instance job-lock hardening (Milestone 3).
 
 ### Auth
 
@@ -76,6 +85,68 @@ Run the doctor from the prebuilt runtime:
 ```sh
 node dist/cli.mjs doctor
 ```
+
+## Install in real Codex
+
+From this repository root:
+
+```sh
+bun install
+bun run build
+codex mcp add patchbay -- node "$(pwd)/dist/mcp-server.mjs"
+codex mcp get patchbay
+```
+
+Optional test state location:
+
+```sh
+codex mcp add patchbay --env PATCHBAY_DATA_DIR=/path/to/isolated/state -- node "$(pwd)/dist/mcp-server.mjs"
+```
+
+Remove the MCP server when done:
+
+```sh
+codex mcp remove patchbay
+```
+
+Closed-loop testing flow (recommended):
+
+1. In one shell, keep dependencies ready and install plugin once:
+```sh
+opencode auth login
+codex mcp add patchbay -- node "/absolute/path/to/codex-patchbay/dist/mcp-server.mjs"
+```
+2. In target repo, run a guided non-interactive Codex pass:
+```sh
+codex exec --json --dangerously-bypass-approvals-and-sandbox -C /path/to/target-repo \
+  "Use patchbay_doctor, then delegate a small scoped task, then wait for verification evidence."
+```
+3. If Codex returns a job id, run follow-up turns for status and evidence:
+```sh
+codex exec --json --dangerously-bypass-approvals-and-sandbox -C /path/to/target-repo \
+  "Call patchbay_status for job, then patchbay_result. If fails, call patchbay_logs."
+```
+4. For issues:
+```sh
+codex exec --json --dangerously-bypass-approvals-and-sandbox -C /path/to/target-repo \
+  "Apply patchbay_submit_finding_dispositions for confirmed review findings, then run patchbay_repair. Re-check with patchbay_result."
+```
+
+Fallback local loop (no Codex/OpenCode call needed):
+
+```sh
+bun test
+```
+
+This uses the fake worker path and verifies the full async/verify/logging flow in CI-like isolation.
+
+Useful model overrides for the run:
+
+- `PATCHBAY_DEEPSEEK_FAST_MODEL`
+- `PATCHBAY_DEEPSEEK_CAPABLE_MODEL`
+- `PATCHBAY_GLM_FAST_MODEL`
+- `PATCHBAY_GLM_CAPABLE_MODEL`
+- `PATCHBAY_OPENCODE_AUTH` (custom auth file path for OpenCode)
 
 ## How doctor reports credentials
 

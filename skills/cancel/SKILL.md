@@ -1,10 +1,17 @@
 ---
 name: patchbay:cancel
-description: Cancel a non-terminal job.
+description: Cancel a running or queued job — aborts the live worker and terminates its process tree.
 ---
 
 # $patchbay:cancel <job-id>
 
-Backing MCP tool: `patchbay_cancel`. Transitions a non-terminal job to `CANCELLED`.
+Backing MCP tool: `patchbay_cancel`.
 
-**Milestone 1 limitation:** jobs run synchronously through the fake worker, so there is no live process to terminate here. Cooperative process-tree termination of a running worker (grace period → force kill, by process identity not PID) lands with the async OpenCode adapter (PRD 10.5, 31.3).
+- If the worker is still running, it aborts the worker and kills its process group (SIGTERM
+  grace → SIGKILL), then the job ends `CANCELLED`. Partial artifacts are preserved.
+- If the job is past the worker phase (finishing fast policy/verification), it is allowed to
+  complete rather than discarding a verified result.
+- A job that is already terminal cannot be cancelled.
+
+Cancellation kills the exact child process Patchbay spawned — never a stored PID — so PID
+reuse can't affect an unrelated process.

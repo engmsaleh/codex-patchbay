@@ -9,7 +9,19 @@ import type { Candidate } from "./git.ts";
 import { addWorktree, removeWorktree, applyPatch, appliedPatchHash } from "./git.ts";
 import { worktreesDir } from "./paths.ts";
 
-export type CheckClassification = "passed" | "failed" | "timeout" | "command_not_found";
+export type CheckClassification =
+  | "passed"
+  | "test_failed"
+  | "lint_failed"
+  | "type_failed"
+  | "build_failed"
+  | "timeout"
+  | "command_not_found"
+  | "dependency_environment_failure"
+  | "sandbox_failure"
+  | "cancelled"
+  | "policy_rejected"
+  | "failed";
 
 export interface CheckResult {
   id: string;
@@ -34,6 +46,40 @@ export interface VerificationReceipt {
 
 const TAIL = 4000; // bounded evidence per stream (PRD 24.2)
 const tail = (s: string) => (s.length > TAIL ? s.slice(-TAIL) : s);
+const stripQuotes = (arg: string) => arg.replace(/^["']|["']$/g, "");
+
+function classifyFromCommand(
+  argv: string[],
+  id: string,
+  signal: NodeJS.Signals | null,
+  errCode?: string,
+  status?: number | null,
+): CheckClassification {
+  if (signal) return "timeout";
+  if (errCode === "ENOENT") return "command_not_found";
+  if (errCode === "EACCES") return "sandbox_failure";
+  if (status === null) return "sandbox_failure";
+  if (status === 0) return "passed";
+
+  const normalizedId = id.toLowerCase();
+  const executable = stripQuotes(argv[0] ?? "").toLowerCase();
+  const marker = `${normalizedId} ${executable} ${argv.slice(1).join(" ")}`.toLowerCase();
+
+  if (["lint", "eslint", "prettier", "ruff", "pylint", "stylecheck"].some((token) => normalizedId.includes(token))) {
+    return "lint_failed";
+  }
+  if (["typecheck", "type-check", "tsc", "pyright", "mypy", "typetest", "types"].some((token) => normalizedId.includes(token))) {
+    return "type_failed";
+  }
+  if (["build", "compile", "bundle", "rollup", "webpack", "vite build", "esbuild", "rustc"].some((token) => normalizedId.includes(token))) {
+    return "build_failed";
+  }
+  if (["deps", "dependency", "install", "npm", "pnpm", "yarn", "bun", "pip", "cargo", "maven", "gradle"].some((token) => marker.includes(token))) {
+    return "dependency_environment_failure";
+  }
+
+  return "test_failed";
+}
 
 /** Environment for verifier commands: strip provider/model credentials (PRD 16.11). */
 function verifierEnv(): NodeJS.ProcessEnv {
@@ -46,7 +92,7 @@ function verifierEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-function runCommand(cwd: string, argv: string[], timeoutSec: number): CheckResult {
+function runCommand(cwd: string, id: string, argv: string[], timeoutSec: number): CheckResult {
   const start = Date.now();
   const r = spawnSync(argv[0]!, argv.slice(1), {
     cwd,
@@ -57,15 +103,11 @@ function runCommand(cwd: string, argv: string[], timeoutSec: number): CheckResul
     maxBuffer: 16 * 1024 * 1024,
   });
   const durationMs = Date.now() - start;
-
-  let classification: CheckClassification;
   const errCode = (r.error as NodeJS.ErrnoException | undefined)?.code;
-  if (errCode === "ENOENT") classification = "command_not_found";
-  else if (r.signal) classification = "timeout"; // killed by the timeout signal
-  else classification = r.status === 0 ? "passed" : "failed";
+  const classification = classifyFromCommand(argv, id, r.signal ?? null, errCode, r.status);
 
   return {
-    id: "",
+    id,
     argv,
     required: true,
     classification,
@@ -98,8 +140,7 @@ export function verify(repoRoot: string, base: string, contract: Contract, candi
 
     for (const a of contract.acceptance) {
       const cwd = a.cwd === "." ? dir : join(dir, a.cwd);
-      const res = runCommand(cwd, a.argv, a.timeout_seconds);
-      res.id = a.id;
+      const res = runCommand(cwd, a.id, a.argv, a.timeout_seconds);
       res.required = a.required;
       checks.push(res);
     }

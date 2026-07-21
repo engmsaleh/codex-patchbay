@@ -1,5 +1,5 @@
 import { test, expect, beforeAll } from "bun:test";
-import { mkdtempSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ const DATA = mkdtempSync(join(tmpdir(), "patchbay-data-"));
 process.env.PATCHBAY_DATA_DIR = DATA;
 
 const { validateContract } = await import("../src/contract.ts");
-const { runJob, prepareApply, applyCandidate } = await import("../src/pipeline.ts");
+const { runJob, prepareApply, applyCandidate, verifyCandidate, readJobLogs } = await import("../src/pipeline.ts");
 const { getJob } = await import("../src/store.ts");
 
 function sh(cwd: string, ...argv: string[]): string {
@@ -35,6 +35,7 @@ function baseContract(root: string, head: string, over: Record<string, unknown> 
     scope: { allow: ["src/**"], ...(over.scope as object ?? {}) },
     acceptance: over.acceptance ?? [{ id: "pass", argv: ["node", "-e", "process.exit(0)"], required: true }],
     worker: { profile: "fake", selection_reason: "test" },
+    metadata: { risk: "low" },
   });
 }
 
@@ -102,18 +103,50 @@ test("false 'tests pass' claim is exposed by clean verification", async () => {
   expect(out.verification?.ok).toBe(false);
 });
 
-test("stale base blocks direct apply", async () => {
+test("stale base is re-integrated, then apply succeeds with refreshed base", async () => {
   const { root, head } = makeRepo();
   const vc = baseContract(root, head);
   const out = await withScript({ writes: [{ path: "src/a.ts", content: "1\n" }] }, () => runJob(vc, "s"));
   expect(out.job.state).toBe("READY_TO_APPLY");
+
   // Move HEAD after verification.
   writeFileSync(join(root, "moved.txt"), "x");
   sh(root, "git", "add", "-A");
   sh(root, "git", "commit", "-qm", "move");
+  const movedHead = sh(root, "git", "rev-parse", "HEAD");
+
+  const plan = prepareApply(out.job.id, out.job.patchHash!);
+  expect(plan.ready).toBe(true);
+  expect(plan.expectedBase).toBe(movedHead);
+  expect(plan.reason).toBe("ready");
+  expect(getJob(out.job.id)!.state).toBe("READY_TO_APPLY");
+
+  const res = applyCandidate({
+    jobId: out.job.id,
+    expectedTaskHash: vc.taskHash,
+    expectedPatchHash: plan.patchHash!,
+    expectedBase: plan.expectedBase,
+    prepareToken: plan.prepareToken!,
+  });
+  expect(res.ok).toBe(true);
+});
+
+test("stale base with conflict transitions to NEEDS_CODEX", async () => {
+  const { root, head } = makeRepo();
+  const vc = baseContract(root, head);
+  const out = await withScript({ writes: [{ path: "src/conflict.ts", content: "export const x = 1;\n" }] }, () => runJob(vc, "s"));
+  expect(out.job.state).toBe("READY_TO_APPLY");
+
+  // Recreate the same file on main so reintegration cannot apply it cleanly.
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src/conflict.ts"), "export const y = 2;\n");
+  sh(root, "git", "add", "-A");
+  sh(root, "git", "commit", "-qm", "conflict");
+
   const plan = prepareApply(out.job.id, out.job.patchHash!);
   expect(plan.ready).toBe(false);
-  expect(plan.reason).toContain("stale");
+  expect(plan.reason).toContain("conflict");
+  expect(getJob(out.job.id)!.state).toBe("NEEDS_CODEX");
 });
 
 test("worker that produces no changes fails", async () => {
@@ -121,4 +154,44 @@ test("worker that produces no changes fails", async () => {
   const vc = baseContract(root, head);
   const out = await withScript({ summary: "did nothing" }, () => runJob(vc, "s"));
   expect(out.job.state).toBe("FAILED_WORKER");
+});
+
+test("verifyCandidate reruns clean verification and enforces expected patch hash", async () => {
+  const { root, head } = makeRepo();
+  const vc = baseContract(root, head);
+  const out = await withScript({ writes: [{ path: "src/new.ts", content: "export const x = 1;\n" }] }, () =>
+    runJob(vc, "s"),
+  );
+  expect(out.job.state).toBe("READY_TO_APPLY");
+
+  const rerun = verifyCandidate({ jobId: out.job.id, expectedPatchHash: out.job.patchHash });
+  expect(rerun.ok).toBe(true);
+  expect(rerun.baseCommit).toBe(head);
+  expect(out.job.patchHash).toBeTruthy();
+  expect(rerun.patchHash).toBe(out.job.patchHash!);
+
+  const mismatch = verifyCandidate({ jobId: out.job.id, expectedPatchHash: "sha256:000000000000000000000000000000000000000000000000000000000000000000" });
+  expect(mismatch.ok).toBe(false);
+  expect(mismatch.reason).toBe("patch hash mismatch");
+});
+
+test("readJobLogs supports stream selection and cursor pagination", async () => {
+  const { root, head } = makeRepo();
+  const vc = baseContract(root, head);
+  const out = await withScript({ writes: [{ path: "src/new.ts", content: "export const x = 1;\n" }] }, () =>
+    runJob(vc, "s"),
+  );
+  expect(out.job.state).toBe("READY_TO_APPLY");
+
+  const first = readJobLogs({ jobId: out.job.id, stream: "verification", maxBytes: 120 });
+  expect(first.jobId).toBe(out.job.id);
+  expect(first.lines[0]).toContain("## verification.json");
+
+  const paged = readJobLogs({ jobId: out.job.id, stream: "verification", maxBytes: 300 });
+  expect(paged.truncated).toBe(true);
+  expect(paged.nextCursor).toBeTruthy();
+  expect(paged.lines[0].length).toBe(300);
+  const next = readJobLogs({ jobId: out.job.id, stream: "verification", maxBytes: 300, cursor: Number(paged.nextCursor!) });
+  expect(next.lines[0].length).toBeGreaterThan(0);
+  expect(next.lines[0]).not.toBe(paged.lines[0]);
 });
