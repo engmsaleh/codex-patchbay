@@ -27,6 +27,7 @@ export interface DoctorReport {
 const WORKER_FAMILIES = [
   { label: "DeepSeek profile", profile: "deepseek-fast", workflow: "DeepSeek implementation" },
   { label: "GLM Coding Plan profile", profile: "glm-fast", workflow: "GLM implementation" },
+  { label: "Claude Sonnet worker", profile: "claude-sonnet", workflow: "Claude worker implementation" },
 ] as const;
 
 const REVIEWER = { label: "Claude Code reviewer", bin: "claude", workflow: "Claude review" } as const;
@@ -93,19 +94,22 @@ export function runDoctor(opts: DoctorOptions = {}): DoctorReport {
   let anyCred = false;
   for (const w of WORKER_FAMILIES) {
     const profile = getProfile(w.profile)!;
-    const hasCred = authAvailable(profile);
+    const hasCred = authAvailable(profile); // for claude, this also confirms the CLI is present
     anyCred ||= hasCred;
+    const runtimeOk = profile.runtime === "opencode" ? opencode.ok : hasCred;
     let status: Health;
     let detail: string;
-    if (!opencode.ok) {
+    if (!runtimeOk && profile.runtime === "opencode") {
       status = "blocked";
       detail = "runtime opencode unavailable";
     } else if (!hasCred) {
       status = "degraded";
-      detail = "OpenCode Go subscription not authenticated (run: opencode auth login)";
+      detail = profile.runtime === "claude"
+        ? "claude CLI not found / not logged in (run: claude login)"
+        : "OpenCode Go subscription not authenticated (run: opencode auth login)";
     } else {
       status = "ready";
-      detail = "OpenCode Go subscription authenticated";
+      detail = profile.runtime === "claude" ? "Claude subscription (claude CLI) available" : "OpenCode Go subscription authenticated";
     }
     components.push({ name: w.label, status, detail });
     (status === "ready" ? available : unavailable).push(w.workflow);

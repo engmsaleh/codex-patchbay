@@ -18,4 +18,9 @@ Delegate one bounded implementation task and return a verified candidate. Backin
 
 State `READY_TO_APPLY` means nothing was applied. To apply, get user approval, then call `patchbay_prepare_apply` and `patchbay_apply` (see `$patchbay:orchestrate`).
 
-Worker profiles: `deepseek-fast`, `deepseek-capable`, `glm-fast`, `glm-capable` (DeepSeek/GLM via OpenCode Go), plus `fake` for testing. Auth uses your OpenCode Go subscription — run `opencode auth login` if `$patchbay:doctor` shows them degraded.
+Worker profiles:
+- `deepseek-fast`, `deepseek-capable`, `glm-fast`, `glm-capable` — DeepSeek/GLM via the **OpenCode Go** subscription (`opencode auth login`). Paid `opencode-go/*` models need credits; free `opencode/*-free` models work via `PATCHBAY_DEEPSEEK_FAST_MODEL=opencode/deepseek-v4-flash-free`.
+- `claude-sonnet` — Claude (Sonnet) worker via the logged-in **Claude subscription** (`claude` CLI). Independent of OpenCode credits. Model overridable with `PATCHBAY_CLAUDE_WORKER_MODEL`.
+- `fake` — testing only.
+
+Run `$patchbay:doctor` to see which are ready.

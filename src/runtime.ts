@@ -5,6 +5,7 @@ import { join, dirname } from "node:path";
 import type { Contract } from "./contract.ts";
 import { getProfile } from "./profiles.ts";
 import { openCodeRuntime } from "./runtime-opencode.ts";
+import { claudeWorkerRuntime } from "./runtime-claude-worker.ts";
 
 export interface RunInput {
   worktreeDir: string;
@@ -66,9 +67,11 @@ export const fakeRuntime: WorkerRuntime = {
   },
 };
 
-/** Resolve a runtime by worker profile: `fake*` → fake; OpenCode profiles → OpenCode adapter. */
+/** Resolve a runtime by worker profile: `fake*` → fake; else by the profile's runtime. */
 export function getRuntime(profile: string): WorkerRuntime {
   if (profile.startsWith("fake")) return fakeRuntime;
-  if (getProfile(profile)?.runtime === "opencode") return openCodeRuntime;
+  const runtime = getProfile(profile)?.runtime;
+  if (runtime === "opencode") return openCodeRuntime;
+  if (runtime === "claude") return claudeWorkerRuntime;
   throw new Error(`no worker runtime for profile "${profile}"`);
 }

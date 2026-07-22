@@ -4,13 +4,13 @@
 // SECURITY MODEL: the real enforcement is Patchbay's — detached worktree, env allowlist,
 // temp HOME, and the post-run policy gate + clean verifier. OpenCode's own permissions are
 // defense-in-depth (P-09: prompts guide, software enforces).
-import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { WorkerRuntime, RunInput, RawWorkerResult } from "./runtime.ts";
 import type { Contract } from "./contract.ts";
 import { getProfile, resolveModel, opencodeAuthPath, type WorkerProfile } from "./profiles.ts";
+import { runProcessGroup } from "./proc.ts";
 
 /** Injectable so tests can run against a fake opencode binary (PRD 34.2, no real provider). */
 function openCodeBin(): string {
@@ -96,66 +96,6 @@ function compileTask(contract: Contract): string {
   return lines.join("\n");
 }
 
-interface ProcOutcome {
-  code: number | null;
-  signal: NodeJS.Signals | null;
-  stdout: string;
-  stderr: string;
-  timedOut: boolean;
-}
-
-function runProcess(bin: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, maxBytes: number, signal?: AbortSignal): Promise<ProcOutcome & { cancelled: boolean }> {
-  return new Promise((resolve) => {
-    const child = spawn(bin, args, { env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-    let cancelled = false;
-    const clip = (buf: string, d: Buffer) => (buf.length < maxBytes ? buf + d.toString() : buf);
-    child.stdout.on("data", (d) => (stdout = clip(stdout, d)));
-    child.stderr.on("data", (d) => (stderr = clip(stderr, d)));
-
-    // Kill the whole process group (SIGTERM grace, then SIGKILL). We kill the live child we
-    // spawned — never a stored PID — so PID reuse can't hit an unrelated process (PRD T-07).
-    const killGroup = (sig: NodeJS.Signals) => {
-      if (child.pid) {
-        try {
-          process.kill(-child.pid, sig);
-        } catch {
-          /* already gone */
-        }
-      }
-    };
-    const forceLater = () => setTimeout(() => killGroup("SIGKILL"), 2000);
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killGroup("SIGTERM");
-      forceLater();
-    }, timeoutMs);
-    const onAbort = () => {
-      cancelled = true;
-      killGroup("SIGTERM");
-      forceLater();
-    };
-    if (signal) {
-      if (signal.aborted) onAbort();
-      else signal.addEventListener("abort", onAbort, { once: true });
-    }
-
-    const cleanup = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-    };
-    child.on("error", (e) => {
-      cleanup();
-      resolve({ code: null, signal: null, stdout, stderr: stderr + `\n${e}`, timedOut, cancelled });
-    });
-    child.on("close", (code, signal) => {
-      cleanup();
-      resolve({ code, signal, stdout, stderr, timedOut, cancelled });
-    });
-  });
-}
 
 /** Best-effort usage/summary extraction from `--format json` event lines. */
 function summarize(stdout: string): string {
@@ -192,7 +132,7 @@ export const openCodeRuntime: WorkerRuntime = {
       const env = workerEnv(profile, tempHome);
       // PATCHBAY_WALL_MS overrides the wall-time cap (used by tests to force a fast timeout).
       const wallMs = Number(process.env.PATCHBAY_WALL_MS) || profile.limits.maxWallSeconds * 1000;
-      const outcome = await runProcess(openCodeBin(), args, env, wallMs, profile.limits.maxOutputBytes, signal);
+      const outcome = await runProcessGroup(openCodeBin(), args, { env, timeoutMs: wallMs, maxBytes: profile.limits.maxOutputBytes, signal });
 
       const log = `# opencode ${model}\nexit=${outcome.code} signal=${outcome.signal} timedOut=${outcome.timedOut} cancelled=${outcome.cancelled}\n\n[stdout]\n${outcome.stdout}\n\n[stderr]\n${outcome.stderr}`;
       if (outcome.cancelled) return { ok: false, summary: "worker cancelled", log };

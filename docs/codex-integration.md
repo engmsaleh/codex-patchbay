@@ -33,13 +33,20 @@ Codex then sees the tools `patchbay_doctor`, `patchbay_estimate`, `patchbay_dele
 
 Useful model selectors:
 
-`PATCHBAY_DEEPSEEK_FAST_MODEL`, `PATCHBAY_DEEPSEEK_CAPABLE_MODEL`, `PATCHBAY_GLM_FAST_MODEL`, `PATCHBAY_GLM_CAPABLE_MODEL`  
+`PATCHBAY_DEEPSEEK_FAST_MODEL`, `PATCHBAY_DEEPSEEK_CAPABLE_MODEL`, `PATCHBAY_GLM_FAST_MODEL`, `PATCHBAY_GLM_CAPABLE_MODEL`, `PATCHBAY_CLAUDE_WORKER_MODEL`  
 `PATCHBAY_OPENCODE_AUTH` (override OpenCode auth file path).
 
 ## Auth
 
-Workers use the OpenCode Go subscription — run `opencode auth login` once. No per-provider
-API keys are needed.
+Two independent worker paths (pick per task via the profile):
+
+- **OpenCode Go** (`opencode auth login`) → `deepseek-*` / `glm-*` profiles. Paid
+  `opencode-go/*` models need credits; free `opencode/*-free` models work with the same login
+  (e.g. `PATCHBAY_DEEPSEEK_FAST_MODEL=opencode/deepseek-v4-flash-free`).
+- **Claude subscription** (logged-in `claude` CLI) → `claude-sonnet` profile. Independent of
+  OpenCode credits; the worker runs `claude -p --model sonnet` in the isolated worktree.
+
+Neither uses per-provider API keys. The reviewer also uses the `claude` CLI.
 
 ## Drive the loop non-interactively
 

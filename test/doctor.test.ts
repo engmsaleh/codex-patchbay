@@ -8,15 +8,21 @@ import { runDoctor, formatDoctor, type DoctorReport } from "../src/doctor.ts";
 // developer's real OpenCode login.
 function withAuth<T>(present: boolean, secret: string, fn: () => T): T {
   const saved = process.env.PATCHBAY_OPENCODE_AUTH;
+  const savedClaude = process.env.PATCHBAY_CLAUDE_WORKER_BIN;
   const dir = mkdtempSync(join(tmpdir(), "pb-auth-"));
   const path = join(dir, "auth.json");
   if (present) writeFileSync(path, JSON.stringify({ "opencode-go": { type: "api", key: secret } }));
   process.env.PATCHBAY_OPENCODE_AUTH = present ? path : join(dir, "missing.json");
+  // Pin the Claude worker binary to a bogus path so doctor mode is driven purely by the
+  // OpenCode auth file, hermetically, regardless of whether this machine has `claude`.
+  process.env.PATCHBAY_CLAUDE_WORKER_BIN = join(dir, "no-claude");
   try {
     return fn();
   } finally {
     if (saved === undefined) delete process.env.PATCHBAY_OPENCODE_AUTH;
     else process.env.PATCHBAY_OPENCODE_AUTH = saved;
+    if (savedClaude === undefined) delete process.env.PATCHBAY_CLAUDE_WORKER_BIN;
+    else process.env.PATCHBAY_CLAUDE_WORKER_BIN = savedClaude;
   }
 }
 

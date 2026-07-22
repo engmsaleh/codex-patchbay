@@ -6,17 +6,19 @@
 // also supported. ponytail: built-in profiles are the source of truth; user/repo TOML
 // profile loading + precedence merging is a later increment.
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 export type AuthSpec =
   | { mode: "opencode_subscription"; provider: string } // credential lives in OpenCode's auth.json
-  | { mode: "provider_env"; envAllow: string[] }; // credential passed as an API-key env var
+  | { mode: "provider_env"; envAllow: string[] } // credential passed as an API-key env var
+  | { mode: "claude_subscription" }; // uses the logged-in `claude` CLI (Claude subscription)
 
 export interface WorkerProfile {
   id: string;
-  runtime: "opencode";
-  /** Env var that overrides the model; falls back to `defaultModel`. Full "provider/model". */
+  runtime: "opencode" | "claude";
+  /** Env var that overrides the model; falls back to `defaultModel`. */
   modelEnv: string;
   defaultModel: string;
   mode: "write";
@@ -61,7 +63,32 @@ export const PROFILES: Record<string, WorkerProfile> = {
     limits: { maxWallSeconds: 1800, maxOutputBytes: 1_048_576 },
     auth: { mode: "opencode_subscription", provider: "opencode-go" },
   },
+  // Claude Code worker using the logged-in `claude` CLI (Claude subscription). Independent
+  // of OpenCode Go credits. Model is an alias (sonnet/opus/haiku), overridable by env.
+  "claude-sonnet": {
+    id: "claude-sonnet",
+    runtime: "claude",
+    modelEnv: "PATCHBAY_CLAUDE_WORKER_MODEL",
+    defaultModel: "sonnet",
+    mode: "write",
+    limits: { maxWallSeconds: 1800, maxOutputBytes: 1_048_576 },
+    auth: { mode: "claude_subscription" },
+  },
 };
+
+/** Binary for the Claude worker. Injectable for tests via PATCHBAY_CLAUDE_WORKER_BIN. */
+export function claudeWorkerBin(): string {
+  return process.env.PATCHBAY_CLAUDE_WORKER_BIN ?? process.env.PATCHBAY_CLAUDE_BIN ?? "claude";
+}
+
+function claudeBinaryAvailable(): boolean {
+  try {
+    const r = spawnSync(claudeWorkerBin(), ["--version"], { encoding: "utf8", shell: false, timeout: 4000 });
+    return !r.error && r.status === 0;
+  } catch {
+    return false;
+  }
+}
 
 export function getProfile(id: string): WorkerProfile | undefined {
   return PROFILES[id];
@@ -82,6 +109,7 @@ export function opencodeAuthPath(): string {
 /** True if the profile's credential is present. Reads only key existence — never a value. */
 export function authAvailable(p: WorkerProfile): boolean {
   if (p.auth.mode === "provider_env") return p.auth.envAllow.every((e) => !!process.env[e]);
+  if (p.auth.mode === "claude_subscription") return claudeBinaryAvailable();
   try {
     const all = JSON.parse(readFileSync(opencodeAuthPath(), "utf8")) as Record<string, unknown>;
     return !!all[p.auth.provider];
